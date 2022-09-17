@@ -120,7 +120,7 @@ class Question(models.Model):
     question_text = models.CharField(max_length=200, default="question_text")
     grade = models.IntegerField()
     lesson = models.ForeignKey(Lesson,on_delete=models.CASCADE)
-
+    
     def is_get_score(self, selected_ids):
        all_answers = self.choice_set.filter(is_correct=True).count()
        selected_correct = self.choice_set.filter(is_correct=True, id__in=selected_ids).count()

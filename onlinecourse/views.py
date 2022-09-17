@@ -1,13 +1,14 @@
 from django.shortcuts import render
 from django.http import HttpResponseRedirect
 # <HINT> Import any new Models here
-from .models import Course, Enrollment
+from .models import Course, Enrollment, Submission, Question, Choice
 from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404, render, redirect
 from django.urls import reverse
 from django.views import generic
 from django.contrib.auth import login, logout, authenticate
 import logging
+import json
 # Get an instance of a logger
 logger = logging.getLogger(__name__)
 # Create your views here.
@@ -110,18 +111,31 @@ def enroll(request, course_id):
          # Collect the selected choices from exam form
          # Add each selected choice object to the submission object
          # Redirect to show_exam_result with the submission id
-#def submit(request, course_id):
+def submit(request, course_id):
+    course = get_object_or_404(Course, pk=course_id)
+    user = request.user
+    enrollment = Enrollment.objects.get(course=course)
+    print('enter submit')
+    answers = extract_answers(request)
+    choices = []
+    submission = Submission.objects.create(enrollment_id = enrollment.id)
+    submission.save()
+    for answer in answers:
+        choice = Choice.objects.get(id=answer)
+        choice.submission_set.add(submission)
+        choices.append(choice)    
 
+    return HttpResponseRedirect(reverse(viewname='onlinecourse:show_exam_result', args=(course.id,submission.id,)))
 
 # <HINT> A example method to collect the selected choices from the exam form from the request object
-#def extract_answers(request):
-#    submitted_anwsers = []
-#    for key in request.POST:
-#        if key.startswith('choice'):
-#            value = request.POST[key]
-#            choice_id = int(value)
-#            submitted_anwsers.append(choice_id)
-#    return submitted_anwsers
+def extract_answers(request):
+   submitted_anwsers = []
+   for key in request.POST:
+       if key.startswith('choice'):
+           value = request.POST[key]
+           choice_id = int(value)
+           submitted_anwsers.append(choice_id)
+   return submitted_anwsers
 
 
 # <HINT> Create an exam result view to check if learner passed exam and show their question results and result for each question,
@@ -131,6 +145,68 @@ def enroll(request, course_id):
         # For each selected choice, check if it is a correct answer or not
         # Calculate the total score
 #def show_exam_result(request, course_id, submission_id):
+def show_exam_result(request, course_id, submission_id):
+    course = get_object_or_404(Course, pk=course_id)
+    submission = get_object_or_404(Submission, pk=submission_id)
+    
+    correctChoice = []    
+    for choice in submission.choices.all():
+        if choice.is_correct:
+            correctChoice.append(choice)        
+    
+    resultQuestionArray = []
+    correctAnswerCount = 0
+    totalQuestionCount = 0
+    for lesson in course.lesson_set.all():
+        totalQuestionCount = lesson.question_set.all().count() + totalQuestionCount
+        for question in lesson.question_set.all():
+            resultQuestion = ResultQuestion()
+            resultQuestion.formatted_choices = []
+            resultQuestion.question_title = question.question_text
+            
+            choicesArray = submission.choices.filter(question__id=question.id)            
+            choicesId = []
+            
+            for submissionChoice in choicesArray:
+                choicesId.append(submissionChoice.id)
+            if question.is_get_score(choicesId):
+                correctAnswerCount = correctAnswerCount + 1
+
+            questionChoices = Choice.objects.filter(question__id=question.id)
+
+            for questionChoice in questionChoices:
+                formattedChoice = FormattedChoice()
+                formattedChoice.choice_title = questionChoice.choice_text
+                formattedChoice.css_class = "text-dark"
+
+                if choicesArray.filter(id=questionChoice.id).count() > 0 :
+                    if questionChoice.is_correct:
+                        formattedChoice.css_class = "font-weight-bold text-success"
+                elif questionChoice.is_correct:
+                    formattedChoice.css_class = "font-weight-bold text-warning"
+
+                resultQuestion.formatted_choices.append(formattedChoice)
+            resultQuestionArray.append(resultQuestion)
+            
+
+    result = (correctAnswerCount/ totalQuestionCount)*100
+    
+    context = {}
+    context['grade'] = result
+    context['course'] = course
+    context['submission'] = submission
+    context['result_question_array'] = resultQuestionArray
+    return render(request, 'onlinecourse/exam_result_bootstrap.html', context)
+
+
+    #return HttpResponseRedirect(reverse(viewname='onlinecourse/exam_result_bootstrap.html', args=(course.id,submission.id,)))
 
 
 
+class ResultQuestion():
+    question_title = ""
+    formatted_choices = []
+
+class FormattedChoice():
+    choice_title = ""
+    css_class = ""
